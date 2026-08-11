@@ -30,3 +30,6 @@ venv/
 # Generated output — tailored resumes are personal artifacts, not source code
 output/resumes/*
 !output/resumes/.gitkeep
+
+# Your actual base resume — never uploaded to GitHub
+output/resume_updated/

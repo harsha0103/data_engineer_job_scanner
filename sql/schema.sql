@@ -13,11 +13,11 @@ SET search_path TO embedd, public;   -- keep public visible so the vector/uuid-o
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS embedd.sources (
     id          SMALLSERIAL PRIMARY KEY,
-    name        TEXT UNIQUE NOT NULL   -- 'indeed', 'dice', 'ziprecruiter'
+    name        TEXT UNIQUE NOT NULL   -- 'indeed', 'dice', 'ziprecruiter', 'linkedin'
 );
 
 INSERT INTO embedd.sources (name) VALUES
-    ('indeed'), ('dice'), ('ziprecruiter')
+    ('indeed'), ('dice'), ('ziprecruiter'), ('linkedin')
 ON CONFLICT (name) DO NOTHING;
 
 -- ------------------------------------------------------------
