@@ -4,3 +4,29 @@
 
 # LangGraph
 .langgraph_api/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Generated output — tailored resumes are personal artifacts, not source code
+output/resumes/*
+!output/resumes/.gitkeep
