@@ -19,11 +19,15 @@ def upsert_job(
     salary_min: float | None = None,
     salary_max: float | None = None,
     posted_at: datetime | None = None,
-) -> UUID:
+) -> tuple[UUID, bool]:
     """Insert a job, or update it in place if (source_id, external_id) already exists.
 
     Re-running a scan over the same listing should update it, not duplicate it —
     that's what the schema's UNIQUE (source_id, external_id) constraint is for.
+
+    Returns (job_id, was_new) — was_new distinguishes a fresh insert from an
+    update to an existing row (via Postgres's xmax=0 trick), so callers doing
+    scan_runs bookkeeping can tell jobs_found apart from jobs_new.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -44,15 +48,33 @@ def upsert_job(
                     description = EXCLUDED.description,
                     url = EXCLUDED.url,
                     posted_at = EXCLUDED.posted_at
-                RETURNING id
+                RETURNING id, (xmax = 0) AS was_new
                 """,
                 (
                     source_id, external_id, title, company, location, remote_type,
                     salary_min, salary_max, description, url, posted_at,
                 ),
             )
-            job_id = cur.fetchone()[0]
-    return job_id
+            job_id, was_new = cur.fetchone()
+    return job_id, was_new
+
+
+def get_jobs_missing_score() -> list[dict]:
+    """Jobs with no embedd.job_scores row yet — for the rubric scorer, which
+    doesn't need description_embedding, just the raw description text."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT j.id, j.title, j.company, j.location, j.description
+                FROM embedd.jobs j
+                LEFT JOIN embedd.job_scores js ON js.job_id = j.id
+                WHERE js.job_id IS NULL
+                """
+            )
+            rows = cur.fetchall()
+            columns = [d.name for d in cur.description]
+    return [dict(zip(columns, row)) for row in rows]
 
 
 def get_jobs_missing_embedding() -> list[dict]:
@@ -77,6 +99,34 @@ def update_embedding(job_id: UUID, embedding: list[float]) -> None:
                 "UPDATE embedd.jobs SET description_embedding = %s WHERE id = %s",
                 (embedding, job_id),
             )
+
+
+def get_jobs_ranked_by_fit(resume_embedding: list[float]) -> list[dict]:
+    """Every embedded job, most similar to the resume first, with its current
+    application status. Jobs with no embedding yet are excluded — nothing to
+    rank them against."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT j.id, j.title, j.company, j.location, j.url, j.posted_at,
+                       s.name AS source,
+                       1 - (j.description_embedding <=> %(resume_embedding)s::vector) AS fit_score,
+                       COALESCE(a.status, 'not_applied') AS status,
+                       js.overall_score, js.skills_match, js.level_match,
+                       js.location_match, js.comp_match, js.notes AS score_notes
+                FROM embedd.jobs j
+                JOIN embedd.sources s ON s.id = j.source_id
+                LEFT JOIN embedd.applications a ON a.job_id = j.id
+                LEFT JOIN embedd.job_scores js ON js.job_id = j.id
+                WHERE j.description_embedding IS NOT NULL
+                ORDER BY j.description_embedding <=> %(resume_embedding)s::vector
+                """,
+                {"resume_embedding": resume_embedding},
+            )
+            rows = cur.fetchall()
+            columns = [d.name for d in cur.description]
+    return [dict(zip(columns, row)) for row in rows]
 
 
 def get_job(job_id: UUID) -> dict | None:

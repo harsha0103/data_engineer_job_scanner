@@ -33,3 +33,6 @@ output/resumes/*
 
 # Your actual base resume — never uploaded to GitHub
 output/resume_updated/
+
+# Daily scheduler logs
+logs/

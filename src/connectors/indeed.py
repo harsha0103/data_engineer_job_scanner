@@ -20,7 +20,7 @@ Indeed itself hands back.
 
 import hashlib
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 _HEADER_LABELS = {
@@ -93,12 +93,12 @@ def make_external_id(title: str, company: str, location: str, posted_on: str) ->
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _parse_posted_date(posted_on: str | None) -> datetime | None:
+def parse_posted_date(posted_on: str | None) -> datetime | None:
     posted_on = _clean(posted_on)
     if posted_on is None:
         return None
     try:
-        return datetime.strptime(posted_on, "%B %d, %Y")
+        return datetime.strptime(posted_on, "%B %d, %Y").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
 
@@ -118,7 +118,7 @@ def to_job_record(listing: dict[str, str], description: str) -> dict[str, Any]:
         "remote_type": "remote" if location and "remote" in location.lower() else None,
         "description": description,
         "url": listing["View Job URL"],
-        "posted_at": _parse_posted_date(posted_on),
+        "posted_at": parse_posted_date(posted_on),
         # salary parsing skipped for now — Compensation is free text ("$60 - $70
         # an hour" vs "$165,000 - $180,000 a year" vs "N/A"), same limitation as
         # Dice's salary field. Not worth the parsing complexity until something

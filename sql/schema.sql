@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS embedd.job_scores (
 );
 
 -- ------------------------------------------------------------
+-- base_resume: your one source-of-truth resume (single row), embedded
+-- once and compared against every job instead of re-embedding on every
+-- Streamlit page load
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS embedd.base_resume (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    file_path       TEXT NOT NULL,
+    resume_text     TEXT NOT NULL,
+    embedding       vector(1536) NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ------------------------------------------------------------
 -- resumes: tailored resume versions generated per job
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS embedd.resumes (
@@ -84,7 +97,8 @@ CREATE TABLE IF NOT EXISTS embedd.applications (
         -- 'not_applied' | 'draft_ready' | 'applied' | 'interviewing' | 'rejected' | 'offer'
     applied_at      TIMESTAMPTZ,
     last_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    notes           TEXT
+    notes           TEXT,
+    UNIQUE (job_id)                          -- one status row per job; re-apply = update
 );
 
 CREATE INDEX IF NOT EXISTS idx_applications_status ON embedd.applications (status);

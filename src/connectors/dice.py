@@ -7,6 +7,7 @@ turning that into an `embedd.jobs` row is the storage layer's job, not this one.
 """
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 
 from mcp.client.session import ClientSession
@@ -68,3 +69,20 @@ async def get_job_details(job_id: str) -> dict[str, Any]:
 async def get_company(job_id: str) -> dict[str, Any]:
     """Company info for the employer behind one job. job_id is the 'guid' from search_jobs."""
     return await _call_tool("get_company", {"job_id": job_id})
+
+
+def to_job_record(listing: dict[str, Any], description: str) -> dict[str, Any]:
+    """Map a search_jobs listing + its full description to upsert_job kwargs."""
+    posted = listing.get("postedDate")
+    location = listing.get("jobLocation") or {}
+
+    return {
+        "external_id": listing["guid"],
+        "title": listing["title"],
+        "company": listing["companyName"],
+        "location": location.get("displayName"),
+        "remote_type": "remote" if listing.get("isRemote") else None,
+        "description": description,
+        "url": listing["detailsPageUrl"],
+        "posted_at": datetime.fromisoformat(posted.replace("Z", "+00:00")) if posted else None,
+    }
