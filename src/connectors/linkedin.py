@@ -14,6 +14,7 @@ automation. That's the boundary this module stays inside: one URL in, one job
 record out, nothing more.
 """
 
+import html
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -31,11 +32,12 @@ _JOB_ID_RE = re.compile(r"/jobs/view/(?:[^/]*-)?(\d{8,12})")
 _RELATIVE_TIME_RE = re.compile(r"(\d+)\s+(hour|day|week|month)s?\s+ago", re.IGNORECASE)
 
 
-def _extract(pattern: str, html: str) -> str | None:
-    m = re.search(pattern, html, re.DOTALL)
+def _extract(pattern: str, page_html: str) -> str | None:
+    m = re.search(pattern, page_html, re.DOTALL)
     if not m:
         return None
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", m.group(1))).strip()
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", m.group(1))).strip()
+    return html.unescape(text)
 
 
 def _parse_relative_posted(text: str | None) -> datetime | None:
@@ -61,16 +63,16 @@ def parse_job_url(url: str) -> dict[str, Any]:
     if resp.status_code != 200 or "expired_jd_redirect" in resp.url:
         raise ValueError(f"LinkedIn job posting not available (expired or moved): {url}")
 
-    html = resp.text
+    page_html = resp.text
     job_id_match = _JOB_ID_RE.search(resp.url) or _JOB_ID_RE.search(url)
     if not job_id_match:
         raise ValueError(f"Could not find a job id in URL: {url}")
 
-    title = _extract(r'top-card-layout__title[^>]*>(.*?)</h1>', html)
-    company = _extract(r'topcard__org-name-link[^>]*>(.*?)</a>', html)
-    location = _extract(r'topcard__flavor--bullet[^>]*>(.*?)</span>', html)
-    description = _extract(r'show-more-less-html__markup[^>]*>(.*?)</div>', html)
-    posted_text = _extract(r'posted-time-ago__text[^>]*>(.*?)</span>', html)
+    title = _extract(r'top-card-layout__title[^>]*>(.*?)</h1>', page_html)
+    company = _extract(r'topcard__org-name-link[^>]*>(.*?)</a>', page_html)
+    location = _extract(r'topcard__flavor--bullet[^>]*>(.*?)</span>', page_html)
+    description = _extract(r'show-more-less-html__markup[^>]*>(.*?)</div>', page_html)
+    posted_text = _extract(r'posted-time-ago__text[^>]*>(.*?)</span>', page_html)
 
     if not title or not company or not description:
         raise ValueError(f"Could not parse expected fields from LinkedIn page: {url}")

@@ -43,8 +43,15 @@ CREATE TABLE IF NOT EXISTS embedd.jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_company     ON embedd.jobs (company);
 CREATE INDEX IF NOT EXISTS idx_jobs_scraped_at   ON embedd.jobs (scraped_at DESC);
-CREATE INDEX IF NOT EXISTS idx_jobs_embedding    ON embedd.jobs
-    USING ivfflat (description_embedding vector_cosine_ops) WITH (lists = 100);
+
+-- No ivfflat index on description_embedding on purpose: it needs thousands of
+-- rows before it's worth anything (rule of thumb: lists ~= rows/1000). At this
+-- project's real scale (dozens to low hundreds of jobs), lists=100 partitioned
+-- 29 rows into 100 mostly-empty clusters, and Postgres's default probes=1 could
+-- land on an empty one and silently return zero rows for an ORDER BY vector
+-- search — reproduced and confirmed via EXPLAIN ANALYZE. A plain sequential
+-- scan is instant at this scale and always correct; revisit only if this table
+-- ever reaches thousands of rows.
 
 -- ------------------------------------------------------------
 -- job_scores: fit evaluation per job (rubric-based, A-F style)

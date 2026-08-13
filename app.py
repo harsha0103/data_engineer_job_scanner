@@ -16,10 +16,15 @@ load_dotenv()
 
 from agent.chat import chat as chat_with_agent
 from agent.resume_writer import generate_tailored_resume
+from agent.scorer import score_job
+from connectors.linkedin import parse_job_url
+from embedding.openai_embeddings import embed_text
 from storage.applications import VALID_STATUSES, set_status
-from storage.jobs import get_jobs_ranked_by_fit
+from storage.jobs import get_jobs_ranked_by_fit, update_embedding, upsert_job
 from storage.resume import get_base_resume
 from storage.resumes import get_resume_for_job
+from storage.scores import upsert_score
+from storage.sources import get_source_id
 
 st.set_page_config(page_title="Data Engineer Job Scanner", layout="wide")
 st.title("Data Engineer Job Scanner")
@@ -38,6 +43,42 @@ jobs_tab, chat_tab = st.tabs(["Jobs", "Chat"])
 
 with jobs_tab:
     st.caption(f"Ranking against: {resume['file_path']} (updated {resume['updated_at']:%Y-%m-%d})")
+
+    with st.expander("Add a LinkedIn job by URL"):
+        st.caption(
+            "LinkedIn has no search API we can automate (deliberate, to avoid "
+            "ToS-violating scraping) — paste one job posting URL you found "
+            "yourself and it'll be fetched, embedded, and scored immediately."
+        )
+        with st.form("add_linkedin_job", clear_on_submit=True):
+            linkedin_url = st.text_input("LinkedIn job URL", label_visibility="collapsed")
+            submitted = st.form_submit_button("Add job")
+
+        if submitted and linkedin_url:
+            try:
+                with st.spinner("Fetching, embedding, and scoring..."):
+                    record = parse_job_url(linkedin_url)
+                    job_id, was_new = upsert_job(source_id=get_source_id("linkedin"), **record)
+                    update_embedding(job_id, embed_text(record["description"]))
+                    result = score_job(
+                        resume["resume_text"], record["title"], record["company"],
+                        record["location"], record["description"],
+                    )
+                    upsert_score(
+                        job_id,
+                        overall_score=result.overall_score,
+                        skills_match=result.skills_match,
+                        level_match=result.level_match,
+                        location_match=result.location_match,
+                        comp_match=result.comp_match,
+                        notes=result.notes,
+                    )
+            except Exception as e:
+                st.error(f"Couldn't add that job: {e}")
+            else:
+                verb = "Added" if was_new else "Updated"
+                st.success(f"{verb}: {record['title']} @ {record['company']}")
+                st.rerun()
 
     if not jobs:
         st.info("No embedded jobs yet — run a search sweep first.")
@@ -63,11 +104,29 @@ with jobs_tab:
                     if st.button("Generate tailored resume", key=f"gen_{job['id']}"):
                         with st.spinner("Tailoring resume..."):
                             result = generate_tailored_resume(job["id"])
-                        st.success(result["summary_of_changes"])
+                        # st.rerun() below interrupts this script run immediately, so
+                        # anything shown before it (e.g. st.success) would never
+                        # actually be seen — stash the result and render it after
+                        # the rerun instead, where it survives.
+                        st.session_state[f"last_gen_{job['id']}"] = result
                         st.rerun()
                 with dl_col:
                     if existing_resume:
                         st.caption(f"Tailored resume: {existing_resume['file_path']}")
+
+                last_gen = st.session_state.get(f"last_gen_{job['id']}")
+                if last_gen:
+                    with st.expander("What was added to your resume", expanded=True):
+                        st.markdown(f"**New summary:** {last_gen['new_summary']}")
+                        if last_gen["new_bullets"]:
+                            st.markdown("**New bullet points:**")
+                            for bullet in last_gen["new_bullets"]:
+                                st.markdown(f"- {bullet}")
+                        else:
+                            st.caption("No new bullets were added, only the summary was rewritten.")
+                        if st.button("Dismiss", key=f"dismiss_{job['id']}"):
+                            del st.session_state[f"last_gen_{job['id']}"]
+                            st.rerun()
 
             with col_status:
                 new_status = st.selectbox(

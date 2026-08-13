@@ -101,10 +101,14 @@ def update_embedding(job_id: UUID, embedding: list[float]) -> None:
             )
 
 
-def get_jobs_ranked_by_fit(resume_embedding: list[float]) -> list[dict]:
-    """Every embedded job, most similar to the resume first, with its current
-    application status. Jobs with no embedding yet are excluded — nothing to
-    rank them against."""
+def get_jobs_ranked_by_fit(resume_embedding: list[float], max_age_days: int = 2) -> list[dict]:
+    """Every embedded job posted within max_age_days. Sorted with not_applied
+    jobs first (that's the point — those are the ones still needing a look),
+    then everything you've already acted on (applied, not_interested, etc.)
+    pushed below; fit score breaks ties within each group. Jobs with no
+    embedding yet are excluded — nothing to rank them against. Jobs with no
+    posted_at (unparseable date) are kept — can't judge their age, don't hide
+    them."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -120,9 +124,11 @@ def get_jobs_ranked_by_fit(resume_embedding: list[float]) -> list[dict]:
                 LEFT JOIN embedd.applications a ON a.job_id = j.id
                 LEFT JOIN embedd.job_scores js ON js.job_id = j.id
                 WHERE j.description_embedding IS NOT NULL
-                ORDER BY j.description_embedding <=> %(resume_embedding)s::vector
+                  AND (j.posted_at IS NULL OR j.posted_at >= now() - %(max_age_days)s * INTERVAL '1 day')
+                ORDER BY (COALESCE(a.status, 'not_applied') != 'not_applied'),
+                         j.description_embedding <=> %(resume_embedding)s::vector
                 """,
-                {"resume_embedding": resume_embedding},
+                {"resume_embedding": resume_embedding, "max_age_days": max_age_days},
             )
             rows = cur.fetchall()
             columns = [d.name for d in cur.description]
