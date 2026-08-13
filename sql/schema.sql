@@ -6,7 +6,9 @@ CREATE EXTENSION IF NOT EXISTS vector;   -- pgvector, for semantic job-fit match
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE SCHEMA IF NOT EXISTS embedd;
-SET search_path TO embedd, public;   -- keep public visible so the vector/uuid-ossp types resolve
+-- 'extensions' covers Supabase, which installs uuid-ossp/vector there rather
+-- than public; harmless locally, where that schema doesn't exist at all.
+SET search_path TO embedd, public, extensions;
 
 -- ------------------------------------------------------------
 -- sources: which job board / connector a listing came from

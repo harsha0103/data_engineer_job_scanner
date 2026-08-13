@@ -22,7 +22,7 @@ from embedding.openai_embeddings import embed_text
 from storage.applications import VALID_STATUSES, set_status
 from storage.jobs import get_jobs_ranked_by_fit, update_embedding, upsert_job
 from storage.resume import get_base_resume
-from storage.resumes import get_resume_for_job
+from storage.resumes import get_latest_resumes_for_jobs
 from storage.scores import upsert_score
 from storage.sources import get_source_id
 
@@ -85,6 +85,8 @@ with jobs_tab:
     else:
         st.caption(f"{len(jobs)} jobs ranked by fit")
 
+        resumes_by_job = get_latest_resumes_for_jobs([job["id"] for job in jobs])
+
         for job in jobs:
             col_main, col_status = st.columns([5, 1])
 
@@ -98,7 +100,7 @@ with jobs_tab:
                 if job["overall_score"] is not None:
                     st.markdown(f"Rubric score: **{float(job['overall_score']):.1f}/5** — {job['score_notes']}")
 
-                existing_resume = get_resume_for_job(job["id"])
+                existing_resume = resumes_by_job.get(job["id"])
                 gen_col, dl_col = st.columns([1, 3])
                 with gen_col:
                     if st.button("Generate tailored resume", key=f"gen_{job['id']}"):
