@@ -4,6 +4,7 @@ tailored resume generation, apply-status tracking, and a chat panel.
 Run with: uv run streamlit run app.py
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -17,14 +18,44 @@ load_dotenv()
 from agent.chat import chat as chat_with_agent
 from agent.resume_writer import generate_tailored_resume
 from agent.scorer import score_job
+from agent.search_sweep import run_dice_sweep
 from connectors.linkedin import parse_job_url
 from embedding.openai_embeddings import embed_text
 from storage.applications import VALID_STATUSES, set_status
-from storage.jobs import get_jobs_ranked_by_fit, update_embedding, upsert_job
+from storage.jobs import (
+    get_jobs_missing_embedding,
+    get_jobs_missing_score,
+    get_jobs_ranked_by_fit,
+    update_embedding,
+    upsert_job,
+)
 from storage.resume import get_base_resume
 from storage.resumes import get_latest_resumes_for_jobs
 from storage.scores import upsert_score
 from storage.sources import get_source_id
+
+
+def _embed_and_score_new_jobs(resume: dict) -> dict[str, int]:
+    """Same embed-then-score logic as main.py's daily run — duplicated rather
+    than imported since main.py's version was inlined when the shared helper
+    got reverted earlier; kept local to app.py on purpose this time."""
+    missing_embedding = get_jobs_missing_embedding()
+    for job in missing_embedding:
+        update_embedding(job["id"], embed_text(job["description"]))
+
+    unscored = get_jobs_missing_score()
+    for job in unscored:
+        result = score_job(resume["resume_text"], job["title"], job["company"], job["location"], job["description"])
+        upsert_score(
+            job["id"],
+            overall_score=result.overall_score,
+            skills_match=result.skills_match,
+            level_match=result.level_match,
+            location_match=result.location_match,
+            comp_match=result.comp_match,
+            notes=result.notes,
+        )
+    return {"embedded": len(missing_embedding), "scored": len(unscored)}
 
 st.set_page_config(page_title="Data Engineer Job Scanner", layout="wide")
 st.title("Data Engineer Job Scanner")
@@ -43,6 +74,37 @@ jobs_tab, chat_tab = st.tabs(["Jobs", "Chat"])
 
 with jobs_tab:
     st.caption(f"Ranking against: {resume['file_path']} (updated {resume['updated_at']:%Y-%m-%d})")
+
+    refresh_col, refresh_caption_col = st.columns([1, 4])
+    with refresh_col:
+        refresh_clicked = st.button("Refresh Dice now")
+    with refresh_caption_col:
+        st.caption(
+            "Searches all 6 titles on Dice and stores/embeds/scores anything new. "
+            "Indeed can't run from a button — it only works inside a live Claude "
+            "session (or the scheduled cloud routine); ask me there instead."
+        )
+
+    if refresh_clicked:
+        with st.spinner("Searching Dice..."):
+            stored = asyncio.run(run_dice_sweep())
+            counts = _embed_and_score_new_jobs(resume)
+        st.session_state["last_dice_refresh"] = {
+            "found": len(stored),
+            "embedded": counts["embedded"],
+            "scored": counts["scored"],
+        }
+        st.rerun()
+
+    last_refresh = st.session_state.get("last_dice_refresh")
+    if last_refresh:
+        st.success(
+            f"Dice sweep: {last_refresh['found']} jobs found, "
+            f"{last_refresh['embedded']} newly embedded, {last_refresh['scored']} newly scored."
+        )
+        if st.button("Dismiss", key="dismiss_dice_refresh"):
+            del st.session_state["last_dice_refresh"]
+            st.rerun()
 
     with st.expander("Add a LinkedIn job by URL"):
         st.caption(
