@@ -60,3 +60,4 @@ def get_latest_resumes_for_jobs(job_ids: list[UUID]) -> dict[UUID, dict]:
             rows = cur.fetchall()
             columns = [d.name for d in cur.description]
     return {row[0]: dict(zip(columns, row)) for row in rows}
+

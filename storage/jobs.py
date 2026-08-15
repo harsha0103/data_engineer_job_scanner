@@ -135,6 +135,37 @@ def get_jobs_ranked_by_fit(resume_embedding: list[float], max_age_days: int = 2)
     return [dict(zip(columns, row)) for row in rows]
 
 
+def delete_stale_jobs(max_age_days: int = 30) -> int:
+    """Deletes jobs older than max_age_days that are still 'not_applied' —
+    i.e. genuinely stale, never-acted-on listings. Anything you've actually
+    done something with (applied, interviewing, offer, rejected, not_interested,
+    draft_ready) is kept regardless of age; deleting those would quietly wipe
+    out real application history just because the listing itself is old.
+
+    Age is judged by COALESCE(posted_at, scraped_at) — falls back to when we
+    found it for the small number of jobs with an unparseable posted_at, so
+    those don't live forever just because their date couldn't be parsed.
+
+    job_scores/resumes/applications rows for deleted jobs are removed
+    automatically via ON DELETE CASCADE in the schema.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM embedd.jobs j
+                WHERE COALESCE(j.posted_at, j.scraped_at) < now() - %(max_age_days)s * INTERVAL '1 day'
+                  AND COALESCE(
+                        (SELECT a.status FROM embedd.applications a WHERE a.job_id = j.id),
+                        'not_applied'
+                      ) = 'not_applied'
+                """,
+                {"max_age_days": max_age_days},
+            )
+            deleted = cur.rowcount
+    return deleted
+
+
 def get_job(job_id: UUID) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:

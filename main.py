@@ -24,7 +24,7 @@ load_dotenv()
 from agent.scorer import score_job
 from agent.search_sweep import run_dice_sweep
 from embedding.openai_embeddings import embed_text
-from storage.jobs import get_jobs_missing_embedding, get_jobs_missing_score, update_embedding
+from storage.jobs import delete_stale_jobs, get_jobs_missing_embedding, get_jobs_missing_score, update_embedding
 from storage.resume import get_base_resume
 from storage.scores import upsert_score
 
@@ -62,6 +62,9 @@ async def main() -> None:
                 notes=result.notes,
             )
         log(f"scored {len(unscored)} jobs")
+
+    deleted = delete_stale_jobs(max_age_days=30)
+    log(f"deleted {deleted} stale (30+ day old, never-applied-to) jobs")
 
     log("daily sweep complete")
 
